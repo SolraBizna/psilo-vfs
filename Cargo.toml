@@ -1,0 +1,21 @@
+[package]
+name = "psilo-vfs"
+description = "Virtual filesystem layer intended for games. Store data in archives, in ROM, in your executable, on the filesystem, or in some unholy combination. Part of the Psilo game engine but may be more generally applicable."
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = {version = "1.13", features = ["sync"]}
+async-trait = "0.1.52"
+regex = "1.5"
+once_cell = "1.8"
+unicode-normalization = "0.1.19"
+psilo-vfs-pathmacro = {path = "pathmacro"}
+
+[dev-dependencies]
+tokio = {version = "1.13", features = ["sync", "io-util", "macros", "rt"]}
+
+[features]
+default = ["fs", "rom"]
+fs = ["tokio/fs"]
+rom = []
