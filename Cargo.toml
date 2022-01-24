@@ -5,12 +5,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = {version = "1.13", features = ["sync"]}
+tokio = {version = "1.13", features = ["sync", "io-util"]}
 async-trait = "0.1.52"
 regex = "1.5"
 once_cell = "1.8"
 unicode-normalization = "0.1.19"
 psilo-vfs-pathmacro = {path = "pathmacro"}
+log = "0.4"
 
 [dev-dependencies]
 tokio = {version = "1.13", features = ["sync", "io-util", "macros", "rt"]}

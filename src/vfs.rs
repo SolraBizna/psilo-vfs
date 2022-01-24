@@ -13,7 +13,7 @@ use tokio::{
 use async_trait::async_trait;
 
 #[async_trait]
-pub trait DataVFSSource {
+pub trait VFSSource {
     /// Opens a given file for reading.
     ///
     /// Takes: an absolute path to a file.
@@ -24,27 +24,31 @@ pub trait DataVFSSource {
     ///
     /// Returns: one or more single-component relative paths.
     async fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
+    /// Atomically replace the contents of a given file.
+    ///
+    /// Takes: an absolute path to a file.
+    async fn update(&self, path: &Path, data: &[u8]) -> io::Result<()>;
 }
 
-struct DataVFSInner {
-    mounts: Vec<(PathBuf, Box<dyn DataVFSSource>)>,
+struct VFSInner {
+    mounts: Vec<(PathBuf, Box<dyn VFSSource>)>,
 }
 
 #[derive(Clone)]
-pub struct DataVFS {
-    inner: Arc<RwLock<DataVFSInner>>,
+pub struct VFS {
+    inner: Arc<RwLock<VFSInner>>,
 }
 
 pub trait DataFile : AsyncRead + AsyncSeek + Unpin {}
 impl<T: AsRef<[u8]> + Unpin> DataFile for Cursor<T> {}
 
-impl DataVFS {
-    pub fn new() -> DataVFS {
-        DataVFS { inner: Arc::new(RwLock::new(DataVFSInner {
+impl VFS {
+    pub fn new() -> VFS {
+        VFS { inner: Arc::new(RwLock::new(VFSInner {
             mounts: vec![]
         }))}
     }
-    pub async fn mount(&mut self, point:PathBuf, source:Box<dyn DataVFSSource>)
+    pub async fn mount(&mut self, point:PathBuf, source:Box<dyn VFSSource>)
         -> io::Result<()> {
         if !point.is_absolute() {
             let err = format!("attempt to mount at a non-absolute path: {:?}",
@@ -169,5 +173,32 @@ impl DataVFS {
             return false
         });
         Ok(result)
+    }
+    /// Attempts to atomically update the file with the given path.
+    ///
+    /// NOTE: Only the *latest mount that contains the given path* will attempt
+    /// to update the file. If that source fails to update the file, the update
+    /// will fail!
+    pub async fn update(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+        if !path.is_absolute() {
+            let err = format!("attempt to open a non-absolute path: {:?}",
+                              path);
+            return Err(io::Error::new(ErrorKind::Other, err))
+        }
+        if path.is_directory() {
+            return Err(io::Error::from(ErrorKind::IsADirectory))
+        }
+        let this = self.inner.read().await;
+        for (prefix, source) in this.mounts.iter().rev() {
+            match path.with_prefix_absolute(prefix) {
+                None => (),
+                Some(suffix) => match source.update(suffix, data).await {
+                    Err(x) if x.kind() == ErrorKind::ReadOnlyFilesystem
+                        => continue,
+                    x => return x,
+                },
+            }
+        }
+        Err(io::Error::from(ErrorKind::ReadOnlyFilesystem))
     }
 }

@@ -25,27 +25,27 @@ impl fmt::Debug for Node {
 }
 
 #[derive(Clone)]
-pub struct DataSource {
+pub struct Source {
     root: Node,
 }
 
-impl DataSource {
-    pub fn new(listing: &[(&'static Path, &'static [u8])]) -> DataSource {
+impl Source {
+    pub fn new(listing: &[(&'static Path, &'static [u8])]) -> Source {
         let mut root = Node::Dir(vec![]);
         for (path, data) in listing {
             if !path.is_absolute() {
                 panic!("BUG IN YOUR PROGRAM: \
-                        RomDataSource listing contained a relative path! {:?}",
+                        RomSource listing contained a relative path! {:?}",
                        path)
             }
             if path.is_directory() && data.len() > 0 {
                 panic!("BUG IN YOUR PROGRAM: \
-                        RomDataSource listing contained a directory with \
+                        RomSource listing contained a directory with \
                         data! {:?}", path)
             }
             if *path == "/" {
                 panic!("BUG IN YOUR PROGRAM: \
-                        RomDataSource listing contained an explicit root!")
+                        RomSource listing contained an explicit root!")
             }
             let mut this_node = &mut root;
             let mut components = path.components();
@@ -54,7 +54,7 @@ impl DataSource {
                 match this_node {
                     Node::File(..) =>
                         panic!("BUG IN YOUR PROGRAM: \
-                                RomDataSource listing contained a file that \
+                                RomSource listing contained a file that \
                                 was \"under\" another file! {:?}",
                                path),
                     Node::Dir(ref mut subnodes) => {
@@ -79,7 +79,7 @@ impl DataSource {
             match this_node {
                 Node::File(..) =>
                     panic!("BUG IN YOUR PROGRAM: \
-                            RomDataSource listing contained a file that was \
+                            RomSource listing contained a file that was \
                             \"under\" another file! {:?}", path),
                 Node::Dir(ref mut subnodes) => {
                     match subnodes.binary_search_by
@@ -87,7 +87,7 @@ impl DataSource {
                             Ok(_) =>
                                 // This component already exists in the tree.
                                 panic!("BUG IN YOUR PROGRAM: \
-                                        RomDataSource listing contained a \
+                                        RomSource listing contained a \
                                         duplicate! {:?}", path),
                             Err(i) => {
                                 // This component doesn't already exist in the
@@ -105,7 +105,7 @@ impl DataSource {
                 },
             }
         }
-        DataSource { root }
+        Source { root }
     }
     fn resolve(&self, path: &Path) -> Option<&Node> {
         let mut this_node = &self.root;
@@ -127,7 +127,7 @@ impl DataSource {
 }
 
 #[async_trait]
-impl DataVFSSource for DataSource {
+impl VFSSource for Source {
     async fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>> {
         debug_assert!(path.is_absolute() && !path.is_directory());
         match self.resolve(path) {
@@ -154,6 +154,9 @@ impl DataVFSSource for DataSource {
             None => Err(io::Error::from(ErrorKind::NotFound)),
         }
     }
+    async fn update(&self, _: &Path, _: &[u8]) -> io::Result<()> {
+        Err(io::Error::from(ErrorKind::ReadOnlyFilesystem))
+    }
 }
 
 #[cfg(test)]
@@ -163,24 +166,24 @@ mod test {
     const fn fsp(i: &str) -> &Path { Path::from_str_preverified(i) }
     #[test] #[should_panic]
     fn no_relative_paths() {
-        DataSource::new(&[(fsp("relative/path"), b"some_data")]);
+        Source::new(&[(fsp("relative/path"), b"some_data")]);
     }
     #[test] #[should_panic]
     fn no_root_path() {
-        DataSource::new(&[(fsp("/"), b"some_data")]);
+        Source::new(&[(fsp("/"), b"some_data")]);
     }
     #[test] #[should_panic]
     fn no_dir_data() {
-        DataSource::new(&[(fsp("/dir/"), b"some_data")]);
+        Source::new(&[(fsp("/dir/"), b"some_data")]);
     }
     #[test] #[should_panic]
     fn no_file_under_file() {
-        DataSource::new(&[(fsp("/some/file"), b"some_data"),
+        Source::new(&[(fsp("/some/file"), b"some_data"),
                           (fsp("/some/file/beneath"), b"some_data")]);
     }
     #[test] #[should_panic]
     fn no_file_deep_under_file() {
-        DataSource::new(&[(fsp("/some/file"), b"some_data"),
+        Source::new(&[(fsp("/some/file"), b"some_data"),
                           (fsp("/some/file/deep/beneath"), b"some_data")]);
     }
     #[tokio::test]
@@ -191,7 +194,7 @@ mod test {
             (fsp("/Data/Subdir/lipsum"), b"Lorem ipsum dolor sit amet?"),
             (fsp("/Data/freq"), b"456"),
         ];
-        let source = DataSource::new(LISTING);
+        let source = Source::new(LISTING);
         for (path, data) in LISTING {
             if path.is_directory() { continue }
             let mut file = source.open(path).await.unwrap();
@@ -312,9 +315,9 @@ mod test {
         let mut all_failures: Vec<(&'static str, Vec<String>)> = vec![];
         for expectation in EXPECTATIONS {
             let mut failures = Vec::new();
-            let mut vfs = DataVFS::new();
+            let mut vfs = VFS::new();
             for &(point, source) in expectation.sources {
-                let source = Box::new(DataSource::new(source));
+                let source = Box::new(Source::new(source));
                 vfs.mount(point.to_owned(), source).await.unwrap();
             }
             let vfs = vfs;

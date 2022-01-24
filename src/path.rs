@@ -104,8 +104,85 @@ static INVALID_PATH_NAME_PATTERN: Lazy<Regex> = Lazy::new(|| {
 /// Analogous to the `Path` struct in the standard library, this is a
 /// non-owned slice over a Psilo-VFS path.
 ///
-/// See [the crate-level documentation](index.html) for more information on how
-/// Psilo-VFS paths work.
+/// # Restrictions
+///
+/// - A path is zero or more components separated by `/`.
+/// - An absolute path begins with `/`. This is the root of the hierarchy. If
+///   a path does not begin with `/`, it is a relative path, and cannot be used
+///   directly.
+/// - A path that denotes a directory MUST end with `/`. A path that denotes a
+///   file MUST NOT end with `/`.
+///
+/// Most of the time, those are the only restrictions you need to care about.
+/// Psilo-VFS cares a lot whether your paths properly begin and end with `/` in
+/// keeping with how they're used. Other than that, *almost* any filename that
+/// is legal on Microsoft Windows is permitted by Psilo-VFS, so you won't need
+/// to read the restrictions below. Nevertheless, here they are, in case you
+/// care.
+///
+/// - A path component MUST contain at least one character.
+/// - A path component MUST NOT begin with `.` (U+0046)
+/// - A path component MUST NOT end with a space (U+0020) or `.` (U+0046)
+/// - A path component MUST NOT contain any of the following characters:
+///     - U+0000 NULL
+///     - Any C0 control character (U+0001 through U+001F) or C1 control
+///       character (U+0080 through U+009F)
+///     - `"` (U+0022 QUOTATION MARK)
+///     - `*` (U+002A ASTERISK)
+///     - `/` (U+002F SOLIDUS; this follows as `/` is used as a path separator)
+///     - `:` (U+003A COLON)
+///     - `?` (U+003F QUESTION MARK)
+///     - `\` (U+005C REVERSE SOLIDUS)
+///     - `<` (U+0060 LESS-THAN SIGN)
+///     - `>` (U+0062 GREATER-THAN SIGN)
+///     - `|` (U+007C VERTICAL LINE)
+/// - A path component MUST NOT be any of the following, or start with any of
+///   the following followed by a `.`. They are given in uppercase, but
+///   mixed- and lowercase versions are forbidden as well.
+///     - "AUX"
+///     - "COM1" through "COM9"
+///     - "CON"
+///     - "LPT1" through "LPT9"
+///     - "NUL"
+///     - "PRN"
+/// - A path component additionally MUST NOT *end* with any of the following:
+///     - `!` (U+0021 EXCLAMATION MARK; reserved for future use)
+///     - `^` (U+005E CIRCUMFLEX ACCENT; reserved for intermediate files)
+///     - `~` (U+007E TILDE; reserved for backup files)
+///
+/// In most filing systems, a path component "." denotes the current directory
+/// and a path component ".." denotes the parent directory. This is also the
+/// case in Psilo-VFS. In some filing systems, ".." in the root directory is
+/// equivalent to ".". This is *not* the case in Psilo-VFS! ".." that spill
+/// above the root directory in an absolute path are an error. Psilo-VFS
+/// accepts these special components anywhere, except where it would attempt to
+/// reach the parent of the root. Psilo-VFS always removes "." components and
+/// minimizes ".." components, which means that ".." will only appear in the
+/// beginning of a relative path and all other instances of ".." will be
+/// resolved (or rejected).
+///
+/// Psilo-VFS imposes no filename length restrictions, but as a rule you should
+/// restrict your paths and filenames to 255 UTF-8 bytes or less. You may run
+/// into problems well below even this limit with certain poorly-written (or
+/// very old) operating systems and programs.
+///
+/// Arbitrary non-ASCII Unicode is allowed by Psilo-VFS, but you should
+/// exercise reason and restraint when using this. Just because you *can* have
+/// bidi control characters and Fraktur in your data file names doesn't mean
+/// you *should*. Also, just a reminder, no matter what your Redmond-originated
+/// OS might think, unpaired surrogates *are not legal in Unicode text*, and
+/// Psilo-VFS will not accept filenames that contain them.
+///
+/// Psilo-VFS converts all path components to Unicode normal form D before use.
+/// This means that "resumé" and "resumé" are always the same file, even if one
+/// was represented with six code points and one was represented with seven.
+/// After normalization, path components are compared and processed codepoint
+/// by codepoint, with no accounting for case. This means that "Resumé" and
+/// "resumé" *are* different files. Try to avoid being in a situation where
+/// either of these things matter, since some underlying filesystems and
+/// archive formats will be unable to handle this if pushed. In particular,
+/// don't poke the sleeping dragon by using filenames that differ only
+/// in case.
 #[repr(transparent)]
 #[derive(PartialEq,Eq,PartialOrd,Ord)]
 pub struct Path {
@@ -360,8 +437,8 @@ impl<'a> DoubleEndedIterator for PathComponents<'a> {
 /// Analogous to the `PathBuf` struct in the standard library, this is an
 /// owned Psilo-VFS path on the heap.
 ///
-/// See [the crate-level documentation](index.html) for more information on how
-/// Psilo-VFS paths work.
+/// See [`Path`](struct.Path.html) for more information on how Psilo-VFS paths
+/// work, and what restrictions they have.
 #[repr(transparent)]
 #[derive(PartialEq,Eq,PartialOrd,Ord,Clone)]
 pub struct PathBuf {
