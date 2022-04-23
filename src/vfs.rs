@@ -42,11 +42,20 @@ pub struct VFS {
 pub trait DataFile : AsyncRead + AsyncSeek + Unpin {}
 impl<T: AsRef<[u8]> + Unpin> DataFile for Cursor<T> {}
 
+#[cfg(feature = "stdpaths")]
+mod stdpaths;
+
 impl VFS {
     pub fn new() -> VFS {
         VFS { inner: Arc::new(RwLock::new(VFSInner {
             mounts: vec![]
         }))}
+    }
+    #[cfg(feature = "stdpaths")]
+    pub fn with_standard_paths(_unixy_name: &str, _humanish_name: &str) -> VFS {
+        let ret = VFS::new();
+        stdpaths::do_standard_mounts(&mut ret);
+        ret
     }
     pub async fn mount(&mut self, point:PathBuf, source:Box<dyn VFSSource>)
         -> io::Result<()> {
