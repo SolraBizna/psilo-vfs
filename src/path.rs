@@ -2,6 +2,7 @@ use std::{
     borrow::{Borrow, Cow},
     error::Error,
     fmt::{Debug, Display, Formatter},
+    hash::{Hash, Hasher},
     ops::Deref,
     str,
 };
@@ -373,6 +374,12 @@ impl Display for Path {
 impl Debug for Path {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
 	write!(fmt, "\"{}\"", &self.inner)
+    }
+}
+
+impl Hash for Path {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.inner.hash(hasher)
     }
 }
 
