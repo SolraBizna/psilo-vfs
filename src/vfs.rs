@@ -52,9 +52,10 @@ impl VFS {
         }))}
     }
     #[cfg(feature = "stdpaths")]
-    pub fn with_standard_paths(_unixy_name: &str, _humanish_name: &str) -> VFS {
-        let ret = VFS::new();
-        stdpaths::do_standard_mounts(&mut ret);
+    pub async fn with_standard_paths(unixy_name: &str, humanish_name: &str)
+        -> VFS {
+        let mut ret = VFS::new();
+        stdpaths::do_standard_mounts(&mut ret, unixy_name, humanish_name).await;
         ret
     }
     pub async fn mount(&mut self, point:PathBuf, source:Box<dyn VFSSource>)
