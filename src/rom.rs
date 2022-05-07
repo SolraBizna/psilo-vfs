@@ -5,8 +5,6 @@ use std::{
     io, io::{Cursor, ErrorKind},
 };
 
-use async_trait::async_trait;
-
 #[derive(Clone)]
 pub enum Node {
     File(&'static [u8]),
@@ -126,9 +124,8 @@ impl Source {
     }
 }
 
-#[async_trait]
 impl VFSSource for Source {
-    async fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>> {
+    fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>> {
         debug_assert!(path.is_absolute() && !path.is_directory());
         match self.resolve(path) {
             Some(Node::File(data))
@@ -138,7 +135,7 @@ impl VFSSource for Source {
             None => Err(io::Error::from(ErrorKind::NotFound)),
         }
     }
-    async fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
+    fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
         debug_assert!(path.is_absolute() && path.is_directory());
         match self.resolve(path) {
             Some(Node::Dir(nodes)) =>
@@ -154,7 +151,7 @@ impl VFSSource for Source {
             None => Err(io::Error::from(ErrorKind::NotFound)),
         }
     }
-    async fn update(&self, _: &Path, _: &[u8]) -> io::Result<()> {
+    fn update(&self, _: &Path, _: &[u8]) -> io::Result<()> {
         Err(io::Error::from(ErrorKind::ReadOnlyFilesystem))
     }
 }
@@ -162,7 +159,6 @@ impl VFSSource for Source {
 #[cfg(test)]
 mod test {
     use super::*;
-    use tokio::io::AsyncReadExt;
     const fn fsp(i: &str) -> &Path { Path::from_str_preverified(i) }
     #[test] #[should_panic]
     fn no_relative_paths() {
@@ -186,8 +182,7 @@ mod test {
         Source::new(&[(fsp("/some/file"), b"some_data"),
                           (fsp("/some/file/deep/beneath"), b"some_data")]);
     }
-    #[tokio::test]
-    async fn some_stuff() {
+    fn some_stuff() {
         const LISTING: &[(&Path, &[u8])] = &[
             (fsp("/Data/"), b""),
             (fsp("/Data/Subdir/Pi"), b"3.1415 etc."),
@@ -197,17 +192,16 @@ mod test {
         let source = Source::new(LISTING);
         for (path, data) in LISTING {
             if path.is_directory() { continue }
-            let mut file = source.open(path).await.unwrap();
+            let mut file = source.open(path).unwrap();
             let mut buf = Vec::with_capacity(data.len());
-            file.read_to_end(&mut buf).await.unwrap();
+            file.read_to_end(&mut buf).unwrap();
             assert_eq!(*data, buf);
         }
     }
-    #[tokio::test]
     /// Tests the specific union mounts that are given in the documentation.
     /// This actually tests the `data` module, it's just that the `rom` module
     /// is required in order for the test to work.
-    async fn documented_unions() {
+    fn documented_unions() {
         const A: &[(&Path, &[u8])] = &[
             (fsp("/bar/"), b""),
             (fsp("/bar/baz"), b"baz from A"),
@@ -318,12 +312,12 @@ mod test {
             let mut vfs = VFS::new();
             for &(point, source) in expectation.sources {
                 let source = Box::new(Source::new(source));
-                vfs.mount(point.to_owned(), source).await.unwrap();
+                vfs.mount(point.to_owned(), source).unwrap();
             }
             let vfs = vfs;
             for &(path, content) in expectation.files {
                 assert!(!path.is_directory());
-                let mut file = match vfs.open(path).await {
+                let mut file = match vfs.open(path) {
                     Ok(x) => x,
                     Err(x) => {
                         failures.push(format!("{:?}: open: {}", path, x));
@@ -331,7 +325,7 @@ mod test {
                     },
                 };
                 let mut buf = Vec::with_capacity(content.len());
-                file.read_to_end(&mut buf).await.unwrap(); // should never fail
+                file.read_to_end(&mut buf).unwrap(); // should never fail
                 if content != buf {
                     failures.push(format!("{:?}: bad content, \
                                            wanted {:?}, got {:?}", path,
@@ -340,7 +334,7 @@ mod test {
                 }
             }
             for &(path, results) in expectation.listings {
-                let ls: Vec<String> = match vfs.ls(path).await {
+                let ls: Vec<String> = match vfs.ls(path) {
                     Ok(x) => x,
                     Err(x) => {
                         failures.push(format!("{:?}: ls: {}", path, x));

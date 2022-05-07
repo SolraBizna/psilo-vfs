@@ -1,14 +1,10 @@
 use crate::*;
 
 use std::{
-    io,
+    fs::{File, OpenOptions, rename, read_dir, remove_file},
+    io::{self, Write},
     path,
 };
-use tokio::{
-    io::AsyncWriteExt,
-    fs::{File, OpenOptions, read_dir, remove_file, rename},
-};
-use async_trait::async_trait;
 use log::debug;
 
 pub struct Source {
@@ -26,31 +22,31 @@ impl Source {
     }
 }
 
-#[async_trait]
 impl VFSSource for Source {
     // TODO: Do we need to make a mapping from normalized paths to physical
     // paths? Apple filesystems handle this correctly for us, maybe Microsoft
     // ones do too. Not sure about Linux ones?
-    async fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>> {
+    fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>> {
         debug_assert!(path.is_absolute() && !path.is_directory());
         let os_path = self.base.join(&path.as_str()[1..]);
-        match File::open(&os_path).await {
+        match File::open(&os_path) {
             Err(x) if x.kind() == io::ErrorKind::NotFound => {
                 let mut backup_path = os_path;
                 backup_path.set_file_name(backup_path.file_name().unwrap()
                                           .to_str().unwrap()
                                           .to_string() + "~");
-                File::open(&backup_path).await
+                File::open(&backup_path)
             },
             x => x,
         }.map(|x| -> Box<dyn DataFile> { Box::new(x) })
     }
-    async fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
+    fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
         debug_assert!(path.is_absolute() && path.is_directory());
         let mut paths = Vec::<PathBuf>::new();
         let os_path = self.base.join(&path.as_str()[1..]);
-        let mut dir = read_dir(os_path).await?;
-        while let Some(entry) = dir.next_entry().await? {
+        let mut dir = read_dir(os_path)?;
+        while let Some(entry) = dir.next() {
+            let entry = entry?;
             let path = entry.path();
             let mut filename = match path.file_name().and_then(|x| x.to_str())
                 .map(|x| x.to_string()) {
@@ -70,7 +66,7 @@ impl VFSSource for Source {
         }
         Ok(paths)
     }
-    async fn update(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+    fn update(&self, path: &Path, data: &[u8]) -> io::Result<()> {
         debug_assert!(path.is_absolute() && !path.is_directory());
         if self.read_only { return Err(io::Error::from(io::ErrorKind
                                                        ::ReadOnlyFilesystem)) }
@@ -86,15 +82,14 @@ impl VFSSource for Source {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&updated_path)
-            .await?;
-        file.write_all(data).await?;
+            .open(&updated_path)?;
+        file.write_all(data)?;
         drop(file);
         // Delete "FILENAME~", ignoring errors
-        let _ = remove_file(&backup_path).await;
+        let _ = remove_file(&backup_path);
         // Move "FILENAME" to "FILENAME~"
-        rename(&os_path, &backup_path).await?;
+        rename(&os_path, &backup_path)?;
         // Move "FILENAME^" to "FILENAME"
-        rename(&updated_path, &os_path).await
+        rename(&updated_path, &os_path)
     }
 }

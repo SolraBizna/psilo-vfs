@@ -1,18 +1,15 @@
 use std::{
     env,
+    fs,
     path,
 };
 use path::Path as StdPath;
 use path::PathBuf as StdPathBuf;
 
-use tokio::{
-    fs,
-};
-
 use super::*;
 
-async fn cranky_does_exist(path: &StdPath) -> bool {
-    match fs::read_dir(path).await {
+fn cranky_does_exist(path: &StdPath) -> bool {
+    match fs::read_dir(path) {
         Ok(_) => true,
         Err(x) if x.kind() == ErrorKind::NotFound => false,
         Err(x) => {
@@ -22,14 +19,14 @@ async fn cranky_does_exist(path: &StdPath) -> bool {
     }
 }
 
-async fn try_data_dir(vfs: &mut VFS, us_dir: &StdPath) {
+fn try_data_dir(vfs: &mut VFS, us_dir: &StdPath) {
     // First, try Data (capital D)
     let mut pb: StdPathBuf = us_dir.join("Data");
-    if !cranky_does_exist(&pb).await {
+    if !cranky_does_exist(&pb) {
         // If that didn't work, try data (lowercase D)
         pb.pop();
         pb.push("data");
-        if !cranky_does_exist(&pb).await {
+        if !cranky_does_exist(&pb) {
             // Neither exists, quietly give up
             log::info!("No data directory found under {:?}", us_dir);
             return
@@ -44,10 +41,10 @@ async fn try_data_dir(vfs: &mut VFS, us_dir: &StdPath) {
     };
     log::info!("Data directory found: {:?}", pb);
     vfs.mount(Path::from_str_preverified("/").to_owned(),
-              Box::new(source)).await.unwrap();
+              Box::new(source)).unwrap();
 }
 
-async fn try_direct_config_dir(vfs: &mut VFS, us_dir: &StdPath) {
+fn try_direct_config_dir(vfs: &mut VFS, us_dir: &StdPath) {
     let source = match crate::fs::Source::new(us_dir.to_owned(), false) {
         Ok(x) => x,
         Err(x) => {
@@ -57,17 +54,17 @@ async fn try_direct_config_dir(vfs: &mut VFS, us_dir: &StdPath) {
     };
     log::info!("Config directory found: {:?}", us_dir);
     vfs.mount(Path::from_str_preverified("/config/").to_owned(),
-              Box::new(source)).await.unwrap();
+              Box::new(source)).unwrap();
 }
 
-async fn try_config_dir(vfs: &mut VFS, us_dir: &StdPath) {
+fn try_config_dir(vfs: &mut VFS, us_dir: &StdPath) {
     // First, try Config (capital C)
     let mut pb: StdPathBuf = us_dir.join("Config");
-    if !cranky_does_exist(&pb).await {
+    if !cranky_does_exist(&pb) {
         // If that didn't work, try config (lowercase C)
         pb.pop();
         pb.push("config");
-        if !cranky_does_exist(&pb).await {
+        if !cranky_does_exist(&pb) {
             // Neither exists, quietly give up
             log::info!("No config directory found under {:?}", us_dir);
             return
@@ -82,7 +79,7 @@ async fn try_config_dir(vfs: &mut VFS, us_dir: &StdPath) {
     };
     log::info!("Config directory found: {:?}", pb);
     vfs.mount(Path::from_str_preverified("/config/").to_owned(),
-              Box::new(source)).await.unwrap();
+              Box::new(source)).unwrap();
 }
 
 fn get_us_dir() -> StdPathBuf {
@@ -104,20 +101,20 @@ fn get_us_dir() -> StdPathBuf {
     }
 }
 
-pub(crate) async fn do_standard_mounts(vfs: &mut VFS, unixy_name: &str,
+pub(crate) fn do_standard_mounts(vfs: &mut VFS, unixy_name: &str,
                                        _humanish_name: &str) {
     if cfg!(target_family="windows") {
         // First in the list, data next to the executable.
         let us_dir = get_us_dir();
-        try_data_dir(vfs, &us_dir).await;
-        try_config_dir(vfs, &us_dir).await;
+        try_data_dir(vfs, &us_dir);
+        try_config_dir(vfs, &us_dir);
         // TODO: USERPROFILE and stuff...
     }
     else if cfg!(target_family="wasm") {
         // ENTIRE LIST: Data in root.
         let us_dir: StdPathBuf = "/".into();
-        try_data_dir(vfs, &us_dir).await;
-        try_config_dir(vfs, &us_dir).await;
+        try_data_dir(vfs, &us_dir);
+        try_config_dir(vfs, &us_dir);
     }
     else if cfg!(target_family="unix") {
         // First in the list, executable-specific data.
@@ -132,8 +129,8 @@ pub(crate) async fn do_standard_mounts(vfs: &mut VFS, unixy_name: &str,
             us_dir.pop();
             us_dir.push("share");
             us_dir.push(unixy_name);
-            try_data_dir(vfs, &us_dir).await;
-            try_config_dir(vfs, &us_dir).await;
+            try_data_dir(vfs, &us_dir);
+            try_config_dir(vfs, &us_dir);
         }
         else if us_dir.parent().and_then(StdPath::file_name)
             .map(|x| x == "target").unwrap_or(false) {
@@ -145,14 +142,14 @@ pub(crate) async fn do_standard_mounts(vfs: &mut VFS, unixy_name: &str,
                 //      .../config
                 us_dir.pop();
                 us_dir.pop();
-                try_data_dir(vfs, &us_dir).await;
-                try_config_dir(vfs, &us_dir).await;
+                try_data_dir(vfs, &us_dir);
+                try_config_dir(vfs, &us_dir);
             }
         else {
             // Assume that we're like other OSes, and we're just plopped in the
             // same directory as our data/config dirs.
-            try_data_dir(vfs, &us_dir).await;
-            try_config_dir(vfs, &us_dir).await;
+            try_data_dir(vfs, &us_dir);
+            try_config_dir(vfs, &us_dir);
         }
         // TODO: /etc... ugh
         // Now, to follow the XDG Base Directory Specification to the letter.
@@ -174,7 +171,7 @@ pub(crate) async fn do_standard_mounts(vfs: &mut VFS, unixy_name: &str,
                     .filter(|x| !x.is_empty()).map(|x| StdPathBuf::from(x)).collect();
                 // Do them in reverse order, because later mounts take priority.
                 for path in paths.into_iter().rev() {
-                    try_data_dir(vfs, &path).await;
+                    try_data_dir(vfs, &path);
                 }
             },
             None => (),
@@ -189,14 +186,14 @@ pub(crate) async fn do_standard_mounts(vfs: &mut VFS, unixy_name: &str,
                 ret
             });
         xdg_data_home.push(unixy_name);
-        try_data_dir(vfs, &xdg_data_home).await;
+        try_data_dir(vfs, &xdg_data_home);
         // Alright, now do all that again but for config.
         match env::var("XDG_CONFIG_DIRS").ok().filter(|x| !x.is_empty()) {
             Some(list) => {
                 let paths: Vec<StdPathBuf> = list.split(":")
                     .filter(|x| !x.is_empty()).map(|x| x.into()).collect();
                 for path in paths.into_iter().rev() {
-                    try_direct_config_dir(vfs, &path).await;
+                    try_direct_config_dir(vfs, &path);
                 }
             },
             None => (),
@@ -210,10 +207,10 @@ pub(crate) async fn do_standard_mounts(vfs: &mut VFS, unixy_name: &str,
             });
         xdg_config_home.push(unixy_name);
         // Before anything else, try recursively making this directory
-        if let Err(x) = fs::create_dir_all(&xdg_config_home).await {
+        if let Err(x) = fs::create_dir_all(&xdg_config_home) {
             log::warn!("{:?}: {:?}", xdg_config_home, x);
         }
-        try_direct_config_dir(vfs, &xdg_config_home).await;
+        try_direct_config_dir(vfs, &xdg_config_home);
     }
     else {
         panic!("Unknown platform, no idea how to do standard mounts!\n\

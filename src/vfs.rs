@@ -2,32 +2,26 @@ use crate::*;
 
 use std::{
     cmp::Ordering,
-    io, io::{Cursor, ErrorKind},
+    io, io::{Cursor, ErrorKind, Seek, Read},
     marker::Unpin,
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
-use tokio::{
-    io::{AsyncRead, AsyncSeek},
-    sync::RwLock,
-};
-use async_trait::async_trait;
 
-#[async_trait]
 pub trait VFSSource {
     /// Opens a given file for reading.
     ///
     /// Takes: an absolute path to a file.
-    async fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>>;
+    fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>>;
     /// List files under a given directory.
     ///
     /// Takes: an absolute path to a directory.
     ///
     /// Returns: one or more single-component relative paths.
-    async fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
+    fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
     /// Atomically replace the contents of a given file.
     ///
     /// Takes: an absolute path to a file.
-    async fn update(&self, path: &Path, data: &[u8]) -> io::Result<()>;
+    fn update(&self, path: &Path, data: &[u8]) -> io::Result<()>;
 }
 
 struct VFSInner {
@@ -39,7 +33,7 @@ pub struct VFS {
     inner: Arc<RwLock<VFSInner>>,
 }
 
-pub trait DataFile : AsyncRead + AsyncSeek + Unpin {}
+pub trait DataFile : Read + Seek {}
 impl<T: AsRef<[u8]> + Unpin> DataFile for Cursor<T> {}
 
 #[cfg(feature = "stdpaths")]
@@ -52,13 +46,13 @@ impl VFS {
         }))}
     }
     #[cfg(feature = "stdpaths")]
-    pub async fn with_standard_paths(unixy_name: &str, humanish_name: &str)
+    pub fn with_standard_paths(unixy_name: &str, humanish_name: &str)
         -> VFS {
         let mut ret = VFS::new();
-        stdpaths::do_standard_mounts(&mut ret, unixy_name, humanish_name).await;
+        stdpaths::do_standard_mounts(&mut ret, unixy_name, humanish_name);
         ret
     }
-    pub async fn mount(&mut self, point:PathBuf, source:Box<dyn VFSSource>)
+    pub fn mount(&mut self, point:PathBuf, source:Box<dyn VFSSource>)
         -> io::Result<()> {
         if !point.is_absolute() {
             let err = format!("attempt to mount at a non-absolute path: {:?}",
@@ -68,11 +62,11 @@ impl VFS {
         if !point.is_directory() {
             return Err(io::Error::from(ErrorKind::NotADirectory))
         }
-        let mut this = self.inner.write().await;
+        let mut this = self.inner.write().unwrap();
         this.mounts.push((point, source));
         Ok(())
     }
-    pub async fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>> {
+    pub fn open(&self, path: &Path) -> io::Result<Box<dyn DataFile>> {
         if !path.is_absolute() {
             let err = format!("attempt to open a non-absolute path: {:?}",
                               path);
@@ -81,12 +75,12 @@ impl VFS {
         if path.is_directory() {
             return Err(io::Error::from(ErrorKind::IsADirectory))
         }
-        let this = self.inner.read().await;
+        let this = self.inner.read().unwrap();
         for (prefix, source) in this.mounts.iter().rev() {
             match path.with_prefix_absolute(prefix) {
                 None => (),
                 Some(suffix) => {
-                    match source.open(suffix).await {
+                    match source.open(suffix) {
                         Ok(x) => return Ok(x),
                         Err(x) if x.kind() == ErrorKind::NotFound => continue,
                         Err(x) => return Err(x)
@@ -96,7 +90,7 @@ impl VFS {
         }
         Err(io::Error::from(ErrorKind::NotFound))
     }
-    pub async fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
+    pub fn ls(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
         if !path.is_absolute() {
             let err = format!("attempt to list a non-absolute path: {:?}",
                               path);
@@ -107,7 +101,7 @@ impl VFS {
                               path);
             return Err(io::Error::new(ErrorKind::Other, err))
         }
-        let this = self.inner.read().await;
+        let this = self.inner.read().unwrap();
         let mut result = vec![];
         let mut any_succeeded = false;
         let mut failed_with_not_dir = false;
@@ -118,7 +112,7 @@ impl VFS {
                 None => (),
                 Some(suffix) => {
                     // ...then take the output of ls according to this mount...
-                    let mut res = match source.ls(suffix).await {
+                    let mut res = match source.ls(suffix) {
                         Ok(x) => x,
                         Err(x) if x.kind() == ErrorKind::NotFound => continue,
                         Err(x) if x.kind() == ErrorKind::NotADirectory => {
@@ -189,7 +183,7 @@ impl VFS {
     /// NOTE: Only the *latest mount that contains the given path* will attempt
     /// to update the file. If that source fails to update the file, the update
     /// will fail!
-    pub async fn update(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+    pub fn update(&self, path: &Path, data: &[u8]) -> io::Result<()> {
         if !path.is_absolute() {
             let err = format!("attempt to open a non-absolute path: {:?}",
                               path);
@@ -198,11 +192,11 @@ impl VFS {
         if path.is_directory() {
             return Err(io::Error::from(ErrorKind::IsADirectory))
         }
-        let this = self.inner.read().await;
+        let this = self.inner.read().unwrap();
         for (prefix, source) in this.mounts.iter().rev() {
             match path.with_prefix_absolute(prefix) {
                 None => (),
-                Some(suffix) => match source.update(suffix, data).await {
+                Some(suffix) => match source.update(suffix, data) {
                     Err(x) if x.kind() == ErrorKind::ReadOnlyFilesystem
                         => continue,
                     x => return x,
