@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-pub trait VFSSource {
+pub trait VFSSource : Send {
     /// Opens a given file for reading.
     ///
     /// Takes: an absolute path to a file.
@@ -32,6 +32,8 @@ struct VFSInner {
 pub struct VFS {
     inner: Arc<RwLock<VFSInner>>,
 }
+
+unsafe impl Send for VFS {}
 
 pub trait DataFile : Read + Seek {}
 impl<T: AsRef<[u8]> + Unpin> DataFile for Cursor<T> {}
