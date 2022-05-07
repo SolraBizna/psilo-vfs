@@ -205,4 +205,26 @@ impl VFS {
         }
         Err(io::Error::from(ErrorKind::ReadOnlyFilesystem))
     }
+    /// Convenience function that attempts to read the given file all at once.
+    ///
+    /// Returns the result as a `Vec<u8>`, see also `read_as_string`.
+    pub fn read_as_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        let mut f = self.open(path)?;
+        let mut buf = vec![];
+
+        f.read_to_end(&mut buf)?;
+
+        Ok(buf)
+    }
+    /// Convenience function that attempts to read the given file all at once.
+    ///
+    /// Returns the result as a `String`, see also `read_as_bytes`.
+    pub fn read_as_string(&self, path: &Path) -> io::Result<String> {
+        let mut f = self.open(path)?;
+        let mut buf = String::new();
+
+        f.read_to_string(&mut buf)?;
+
+        Ok(buf)
+    }
 }
